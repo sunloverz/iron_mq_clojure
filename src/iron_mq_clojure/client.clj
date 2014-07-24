@@ -19,12 +19,12 @@
   :port - the port, as an int, that the server is listening on. Defaults to 443.
   :max-retries - maximum number of retries on HTTP error 503."
   [token project-id & options]
-  (let [default {:token       token
-                 :project-id  project-id
-                 :api-version 1
-                 :scheme      "https"
-                 :host        aws-host
-                 :port        443
+  (let [default {:token token
+                 :project-id project-id
+                 :api-version 3
+                 :scheme "https"
+                 :host aws-host
+                 :port 443
                  :max-retries 5}]
     (merge default (apply hash-map options))))
 
@@ -52,13 +52,13 @@
   body - a string you would like to pass with the request. Set it to nil if not passing a body."
   [client method endpoint body]
   (let [path (format "/%d/projects/%s%s"
-                     (:api-version client)
-                     (:project-id client)
-                     endpoint)
+               (:api-version client)
+               (:project-id client)
+               endpoint)
         url (URL. (:scheme client)
-                  (:host client)
-                  (:port client)
-                  path)]
+              (:host client)
+              (:port client)
+              path)]
     (loop [try 0]
       (let [conn (. url openConnection)]
         (doto conn
@@ -86,7 +86,8 @@
   client - an IronMQ client created with create-client."
   [client]
   (map (fn [q] (get q "name"))
-       (request client "GET" "/queues" nil)))
+    (get (request client "GET" "/queues" nil)
+      "queues")))
 
 (defn queue-size
   "Returns the size of a queue, as an int.
@@ -95,7 +96,7 @@
   queue - the name of a queue, passed as a string."
   [client queue]
   (get (request client "GET" (format "/queues/%s" queue) nil)
-       "size"))
+    "size"))
 
 (defn post-messages
   "Pushes multiple messages to a queue in a single HTTP request.
@@ -107,12 +108,12 @@
              create-message."
   [client queue & messages]
   (get (request client "POST" (format "/queues/%s/messages" queue)
-                (generate-string {:messages (map
-                                             (fn [m]
-                                               (if (string? m)
-                                                 (create-message m) m))
-                                             messages)}))
-       "ids"))
+         (generate-string {:messages (map
+                                       (fn [m]
+                                         (if (string? m)
+                                           (create-message m) m))
+                                       messages)}))
+    "ids"))
 
 (defn post-message
   "Pushes a single message to a queue.
@@ -124,23 +125,43 @@
   [client queue message]
   (first (post-messages client queue message)))
 
+(defn reserve-messages
+  "Reserves an array of messages from a queue.
+
+  client - an IronMQ client, created with create-client.
+  queue - the name of a queue, passed as a string."
+  [client queue n]
+  (get (request client "POST" (format "/queues/%s/reservations" queue)
+         (generate-string {:n n}))
+    "messages")
+  )
+
+(defn reserve-message
+  "Reserves a message from a queue.
+
+  client - an IronMQ client, created with create-client.
+  queue - the name of a queue, passed as a string.
+  n - the number of messages to retrieve, passed as an int."
+  [client queue]
+  (reserve-messages client queue 1))
+
+(defn get-message
+  "Returns a single message from a queue.
+
+  client - an IronMQ client, created with create-client.
+  queue - the name of a queue, passed as a string."
+  [client queue]
+  (reserve-message client queue))
+
 (defn get-messages
   "Returns an array of messages that are on a queue.
-  
+
   client - an IronMQ client, created with create-client.
   queue - the name of a queue, passed as a string.
   n - the number of messages to retrieve, passed as an int."
   [client queue n]
-    (get (request client "GET" (format "/queues/%s/messages?n=%d" queue n) nil)
-         "messages"))
-    
-(defn get-message
-  "Returns a single message from a queue.
-  
-  client - an IronMQ client, created with create-client.
-  queue - the name of a queue, passed as a string."
-  [client queue]
-  (first (get-messages client queue 1)))
+  (reserve-messages client queue n))
+
 
 (defn delete-message
   "Removes a message from a queue.
@@ -149,5 +170,11 @@
   queue - the name of a queue, passed as a string.
   message - the message object to be removed, as retrieve from get-message
             or get-messages."
-  [client queue message]
-  (request client "DELETE" (format "/queues/%s/messages/%s" queue (get message "id")) nil))
+
+  ([client queue message-id reservation-id]
+    (request client "DELETE" (format "/queues/%s/messages/%s" queue message-id)
+      (generate-string {:reservation_id reservation-id})))
+  ([client queue message-id]
+    (request client "DELETE" (format "/queues/%s/messages/%s" queue message-id) "{}")))
+
+
