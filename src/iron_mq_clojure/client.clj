@@ -98,6 +98,25 @@
   (get (request client "GET" (format "/queues/%s" queue) nil)
     "size"))
 
+(defn queue-info
+  "Executes an HTTP request to get details on a queue, and return it."
+
+  [client queue]
+  (get (request client "GET" (format "/queues/%s" queue) nil)
+    "queue"))
+
+(defn clear
+  "Executes an HTTP request to clear messages from a queue."
+
+  [client queue]
+  (request client "DELETE" (format "/queues/%s/messages" queue) "{}"))
+
+(defn delete-queue
+  "Delete queue by name."
+
+  [client queue]
+  (request client "DELETE" (format "queues/%s" queue) "{}"))
+
 (defn post-messages
   "Pushes multiple messages to a queue in a single HTTP request.
 
@@ -162,6 +181,14 @@
   [client queue n]
   (reserve-messages client queue n))
 
+(defn get-message-by-id
+  "Returns a message by id.
+
+   client - an IronMQ client, created with create-client.
+   queue - the name of a queue, passed as a string.
+   message-id - the id of the message."
+  [client queue message-id]
+  (request client "GET" (format "queues/%s/messages/%s" queue message-id) nil))
 
 (defn delete-message
   "Removes a message from a queue.
@@ -177,4 +204,43 @@
   ([client queue message-id]
     (request client "DELETE" (format "/queues/%s/messages/%s" queue message-id) "{}")))
 
+(defn delete-messages
+  "Execute an HTTP request to delete messages from queue."
 
+  [client queue ids]
+  (request client "DELETE" (format "queues/%s/messages" queue)
+    (generate-string{:ids (map (fn[id] (generate-string{:id id})) ids)}{:pretty true})))
+
+(defn touch-message
+  "Touching a reserved message extends its timeout to the duration specified when the message was created.
+
+   message - the reserved message."
+  [client queue message]
+  (request client "POST" (format "/queues/%s/messages/%s/touch" queue (get message "id"))
+    (generate-string {:reservation_id (get message "reservation_id")})))
+
+(defn peek-message
+  "Peeks message from a queue.
+
+   client - an IronMQ client, created with create-client.
+   queue - the name of a queue, passed as a string.
+   n - the number of messages to retrieve."
+  ([client queue n]
+    (request client "GET" (format "/queues/%s/messages?n=%d" queue n) nil))
+  ([client queue]
+    (request client "GET" (format "/queues/%s/messages" queue) nil)))
+
+(defn release-message
+  "Release locked message after specified time. If there is no message with such id on the queue.
+
+   client - an IronMQ client, created with create-client.
+   queue - the name of a queue, passed as a string.
+   message - the reserved message.
+   delay - the time after which the message will be released."
+  ([client queue message]
+    (request client "POST" (format "queues/%s/messages/%s/release" queue (get message "id"))
+      (generate-string {:reservation_id (get message "reservation_id")})))
+  ([client queue message delay]
+    (request client "POST" (format "queues/%s/messages/%s/release" queue (get message "id"))
+      (generate-string {:reservation_id (get message "reservation_id")
+                        :delay delay}))))
